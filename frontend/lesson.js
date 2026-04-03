@@ -1,9 +1,128 @@
 /* ═══════════════════════════════════════════════════════════════
    FinQuest — Lesson / Quiz Engine
    Handles: TEACH → QUIZ → REINFORCEMENT → VICTORY flow
+   Fetches data from Supabase; falls back to demo data.
    ═══════════════════════════════════════════════════════════════ */
 
-// ─── DEMO DATA ─────────────────────────────────────────────────
+// ─── SUPABASE CONFIG ───────────────────────────────────────────
+const SUPABASE_URL = "https://vgarnqvzlrijgwzeipej.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnYXJucXZ6bHJpamd3emVpcGVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNTg3MDEsImV4cCI6MjA5MDczNDcwMX0.s30wH2Lq8l_FDScmGlo3ctd5_yEo8OhhUKZ3ZkJnM6o";
+
+// Map absolute level ID (0-14) to {stage, level} for Supabase queries
+function levelIdToStageLevel(levelId) {
+    const stage = Math.floor(levelId / 5) + 1;
+    const level = (levelId % 5) + 1;
+    return { stage, level };
+}
+
+
+// ─── SUPABASE FETCH ────────────────────────────────────────────
+async function fetchFromSupabase(table, params) {
+    const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+    Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));
+    
+    const resp = await fetch(url.toString(), {
+        headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+            "Content-Type": "application/json",
+        }
+    });
+    if (!resp.ok) throw new Error(`Supabase error: ${resp.status}`);
+    return resp.json();
+}
+
+function processQuestion(row) {
+    const optionMap = { "A": 0, "B": 1, "C": 2, "D": 3 };
+    const correctLetter = (row.correct_option || "").trim().toUpperCase();
+    const correctIdx = optionMap[correctLetter];
+    if (correctIdx === undefined) return null;
+    return {
+        question: row.question || "",
+        options: [
+            row.option_a || "",
+            row.option_b || "",
+            row.option_c || "",
+            row.option_d || "",
+        ],
+        correct: correctIdx,
+        explanation: row.explanation || "",
+    };
+}
+
+async function fetchLessonDataFromSupabase(levelId) {
+    const { stage, level } = levelIdToStageLevel(levelId);
+
+    try {
+        // Fetch core questions
+        const coreRows = await fetchFromSupabase("questions", {
+            "select": "*",
+            "stage": `eq.${stage}`,
+            "level": `eq.${level}`,
+            "question_type": "eq.core",
+            "order": "question_order",
+            "limit": "5",
+        });
+
+        // Fetch reinforcement questions
+        const rlRows = await fetchFromSupabase("questions", {
+            "select": "*",
+            "stage": `eq.${stage}`,
+            "level": `eq.${level}`,
+            "question_type": "eq.reinforcement",
+            "order": "question_order",
+            "limit": "3",
+        });
+
+        // Fetch lesson content
+        let lessonContent = null;
+        try {
+            const lessonRows = await fetchFromSupabase("lessons", {
+                "select": "topic,content",
+                "stage": `eq.${stage}`,
+                "level": `eq.${level}`,
+                "limit": "1",
+            });
+            if (lessonRows && lessonRows.length > 0) {
+                lessonContent = lessonRows[0];
+            }
+        } catch (e) {
+            // lessons table may not exist; ignore
+        }
+
+        const questions = coreRows.map(processQuestion).filter(Boolean);
+        const reinforcement = rlRows.map(processQuestion).filter(Boolean);
+
+        if (questions.length < 1) {
+            console.warn(`No core questions found for stage=${stage}, level=${level}`);
+            return null;
+        }
+
+        // Build topic name
+        const STAGE_TOPICS = {
+            1: "Money Basics", 2: "Investing & Wealth", 3: "Debt, Taxes & Planning"
+        };
+        const topic = (lessonContent && lessonContent.topic) 
+            ? lessonContent.topic 
+            : (coreRows[0] && coreRows[0].topic) 
+                ? coreRows[0].topic 
+                : STAGE_TOPICS[stage] || `Stage ${stage}`;
+
+        const content = (lessonContent && lessonContent.content)
+            ? lessonContent.content
+            : (questions[0] && questions[0].explanation)
+                ? `Welcome to <strong>${topic}</strong>! This lesson will test your understanding through interactive questions.<br><br>${questions[0].explanation}`
+                : `Welcome to <strong>${topic}</strong>! Let's test your financial knowledge.`;
+
+        return { topic, content, questions, reinforcement };
+    } catch (err) {
+        console.error("Supabase fetch error:", err);
+        return null;
+    }
+}
+
+
+// ─── DEMO DATA (fallback) ──────────────────────────────────────
 const DEMO_LESSONS = {
     0: {
         topic: "What is Money?",
@@ -64,73 +183,13 @@ const DEMO_LESSONS = {
                 explanation: "Modern fiat money derives its value from the trust people place in it and government backing, not from inherent material value."
             }
         ]
-    },
-    6: {
-        topic: "Stocks & Bonds",
-        content: `<strong>Stocks</strong> represent ownership in a company. When you buy a stock, 
-        you become a partial owner and can benefit from the company's growth through price appreciation and dividends.
-        <br><br><strong>Bonds</strong> are like loans you give to governments or companies. 
-        They pay you regular interest and return your principal at maturity. 
-        Bonds are generally safer but offer lower returns than stocks.`,
-        questions: [
-            {
-                question: "What does owning a stock represent?",
-                options: ["A loan to a company", "Partial ownership of a company", "A government bond", "A savings account"],
-                correct: 1,
-                explanation: "Stocks represent equity — when you buy shares, you own a small piece of the company."
-            },
-            {
-                question: "Bonds are best described as:",
-                options: ["Ownership in a company", "Loans to governments or companies", "Real estate investments", "Cryptocurrency"],
-                correct: 1,
-                explanation: "When you buy a bond, you're essentially lending money to the issuer in exchange for regular interest payments."
-            },
-            {
-                question: "Which typically has higher risk and higher potential return?",
-                options: ["Bonds", "Savings accounts", "Stocks", "Fixed deposits"],
-                correct: 2,
-                explanation: "Stocks historically offer higher returns but come with greater volatility and risk compared to bonds."
-            },
-            {
-                question: "What is a dividend?",
-                options: ["A type of bond", "A share of company profits paid to stockholders", "A bank fee", "A tax payment"],
-                correct: 1,
-                explanation: "Dividends are portions of a company's profits distributed to shareholders, usually quarterly."
-            },
-            {
-                question: "What happens when a bond 'matures'?",
-                options: ["It expires worthless", "The issuer returns your principal", "You get more bonds", "The interest rate doubles"],
-                correct: 1,
-                explanation: "At maturity, the bond issuer pays back the face value (principal) of the bond to the holder."
-            }
-        ],
-        reinforcement: [
-            {
-                question: "A conservative investor would likely prefer:",
-                options: ["High-growth tech stocks", "Government bonds", "Cryptocurrency", "Penny stocks"],
-                correct: 1,
-                explanation: "Conservative investors prioritize safety — government bonds are among the safest investments available."
-            },
-            {
-                question: "If a company's stock price drops 20%, a bondholder:",
-                options: ["Also loses 20%", "Is generally unaffected", "Gets a bonus", "Must sell their bonds"],
-                correct: 1,
-                explanation: "Bondholders receive fixed interest regardless of stock price changes — their return comes from interest, not stock performance."
-            },
-            {
-                question: "Which investment gives you voting rights in a company?",
-                options: ["Corporate bonds", "Government bonds", "Common stocks", "Treasury bills"],
-                correct: 2,
-                explanation: "Common stockholders are partial owners and typically receive voting rights on major company decisions."
-            }
-        ]
     }
 };
 
 
 // ─── LESSON STATE ──────────────────────────────────────────────
 const LessonState = {
-    step: "teach",          // teach | quiz | reinforcement | victory
+    step: "loading",          // loading | teach | quiz | reinforcement | victory
     levelId: 0,
     questionIndex: 0,
     answered: null,         // null | index
@@ -142,9 +201,10 @@ const LessonState = {
     reinforcementIndex: 0,
     reinforcementCorrect: 0,
     practiceFirstCorrect: true,
+    lessonDataCache: null,  // fetched data
 
     get lessonData() {
-        return DEMO_LESSONS[this.levelId] || DEMO_LESSONS[0];
+        return this.lessonDataCache || DEMO_LESSONS[this.levelId] || DEMO_LESSONS[0];
     },
 
     get totalQuestions() {
@@ -159,7 +219,7 @@ const LessonState = {
     },
 
     get progressPercent() {
-        if (this.step === "teach") return 0;
+        if (this.step === "teach" || this.step === "loading") return 0;
         if (this.step === "victory") return 100;
         if (this.step === "reinforcement") {
             const total = this.lessonData.reinforcement.length;
@@ -179,6 +239,7 @@ const LessonIcons = {
     trophy: `<svg viewBox="0 0 24 24" fill="#FFD700"><path d="M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94.63 1.5 1.98 2.63 3.61 2.96V19H7v2h10v-2h-4v-3.1c1.63-.33 2.98-1.46 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM5 8V7h2v3.82C5.84 10.4 5 9.3 5 8zm14 0c0 1.3-.84 2.4-2 2.82V7h2v1z"/></svg>`,
     flame: `<svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M12 23c-4.97 0-9-3.58-9-8 0-3.07 2.17-5.83 3.68-7.67l.6-.73c.26-.31.72-.33 1-.04l.38.4c1.4 1.52 3.16 3.45 3.64 5.81.38-.79.76-1.45 1.03-1.88l.42-.67c.2-.31.62-.4.92-.17C16.28 11.39 21 14.79 21 15c0 4.42-4.03 8-9 8z"/></svg>`,
     shield: `<svg width="16" height="16" viewBox="0 0 24 24" fill="#FF9600"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>`,
+    loading: `<svg width="40" height="40" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#58CC02" stroke-width="4" stroke-linecap="round" stroke-dasharray="80 40"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>`,
 };
 
 const OPTION_LETTERS = ["A", "B", "C", "D"];
@@ -192,6 +253,9 @@ function render() {
     const content = document.getElementById("lesson-content");
 
     switch (LessonState.step) {
+        case "loading":
+            renderLoading(content);
+            break;
         case "teach":
             renderTeach(content);
             break;
@@ -205,6 +269,18 @@ function render() {
             renderVictory(content);
             break;
     }
+}
+
+
+// ─── LOADING SCREEN ────────────────────────────────────────────
+function renderLoading(container) {
+    container.innerHTML = `
+        <div class="quiz-card" style="text-align:center; padding:60px 28px;">
+            <div style="margin-bottom:20px;">${LessonIcons.loading}</div>
+            <h2 class="quiz-card__title" style="font-size:20px;">Loading Lesson...</h2>
+            <p class="quiz-card__body" style="color:#888;">Fetching questions from database</p>
+        </div>
+    `;
 }
 
 
@@ -253,7 +329,7 @@ function renderQuiz(container) {
     if (qIdx >= total) {
         // Check if reinforcement needed
         const accuracy = LessonState.correct / total;
-        if (accuracy < 0.8 && LessonState.lessonData.reinforcement) {
+        if (accuracy < 0.8 && LessonState.lessonData.reinforcement && LessonState.lessonData.reinforcement.length > 0) {
             LessonState.step = "reinforcement";
             LessonState.reinforcementIndex = 0;
             LessonState.reinforcementCorrect = 0;
@@ -679,11 +755,28 @@ function launchConfetti() {
 
 
 // ─── INIT ──────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
     // Parse level from URL
     const params = new URLSearchParams(window.location.search);
     const levelId = parseInt(params.get("level")) || 0;
     LessonState.levelId = levelId;
 
+    // Show loading
+    LessonState.step = "loading";
+    render();
+
+    // Try fetching from Supabase
+    console.log(`Fetching lesson data for level ${levelId} (stage=${Math.floor(levelId/5)+1}, level=${(levelId%5)+1})...`);
+    const supabaseData = await fetchLessonDataFromSupabase(levelId);
+
+    if (supabaseData) {
+        console.log(`✓ Loaded from Supabase: ${supabaseData.questions.length} core + ${supabaseData.reinforcement.length} reinforcement questions`);
+        LessonState.lessonDataCache = supabaseData;
+    } else {
+        console.warn("⚠ Supabase fetch failed, using demo data fallback");
+        LessonState.lessonDataCache = DEMO_LESSONS[levelId] || DEMO_LESSONS[0] || null;
+    }
+
+    LessonState.step = "teach";
     render();
 });
