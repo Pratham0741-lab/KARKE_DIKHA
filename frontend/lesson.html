@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="FinQuest Lesson — Test your financial knowledge with interactive quizzes.">
+    <title>FinQuest — Lesson</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="lesson-page">
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- HUD BAR                                                 -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <header class="hud" id="hud-bar">
+        <div class="hud__left">
+            <a href="index.html" class="hud__back" id="back-btn" aria-label="Back to map">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </a>
+            <div class="hud__logo">
+                <svg class="hud__logo-icon" viewBox="0 0 24 24" fill="#58CC02"><path d="M12 2L14 9L21 9L15.5 13.5L17.5 21L12 16.5L6.5 21L8.5 13.5L3 9L10 9L12 2Z"/></svg>
+                <span class="hud__logo-text">FinQuest</span>
+            </div>
+        </div>
+        <div class="hud__stats">
+            <div class="hud__stat" id="hud-xp">
+                <div class="hud__stat-icon hud__stat-icon--xp">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L14 9L21 9L15.5 13.5L17.5 21L12 16.5L6.5 21L8.5 13.5L3 9L10 9L12 2Z"/></svg>
+                </div>
+                <span class="hud__stat-value" id="xp-value">250</span>
+            </div>
+            <div class="hud__stat" id="hud-streak">
+                <div class="hud__stat-icon hud__stat-icon--flame">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 23c-4.97 0-9-3.58-9-8 0-3.07 2.17-5.83 3.68-7.67l.6-.73c.26-.31.72-.33 1-.04l.38.4c1.4 1.52 3.16 3.45 3.64 5.81.38-.79.76-1.45 1.03-1.88l.42-.67c.2-.31.62-.4.92-.17C16.28 11.39 21 14.79 21 15c0 4.42-4.03 8-9 8z"/></svg>
+                </div>
+                <span class="hud__stat-value" id="streak-value">3</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- PROGRESS BAR                                            -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="progress-bar-container" id="progress-bar">
+        <div class="progress-track">
+            <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- LESSON CONTENT AREA                                     -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div class="lesson-content" id="lesson-content">
+        <!-- Dynamically rendered by JS -->
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- CONFETTI CANVAS (victory)                               -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <canvas class="confetti-canvas" id="confetti-canvas"></canvas>
+
+    <script src="lesson.js"></script>
+</body>
+</html>
