@@ -200,6 +200,7 @@ const LessonState = {
     xp: 250,
     reinforcementIndex: 0,
     reinforcementCorrect: 0,
+    reinforcementQuestions: null,  // stage-level reinforcement (fetched on demand)
     practiceFirstCorrect: true,
     lessonDataCache: null,  // fetched data
 
@@ -213,21 +214,49 @@ const LessonState = {
 
     get currentQuestion() {
         if (this.step === "reinforcement") {
-            return this.lessonData.reinforcement[this.reinforcementIndex];
+            return this.reinforcementQuestions[this.reinforcementIndex];
         }
         return this.lessonData.questions[this.questionIndex];
+    },
+
+    // Check if this level is the last in its stage (level 5 of 5)
+    get isStageLastLevel() {
+        return (this.levelId % 5) === 4; // ids 4, 9, 14
+    },
+
+    get stageNumber() {
+        return Math.floor(this.levelId / 5) + 1;
     },
 
     get progressPercent() {
         if (this.step === "teach" || this.step === "loading") return 0;
         if (this.step === "victory") return 100;
         if (this.step === "reinforcement") {
-            const total = this.lessonData.reinforcement.length;
+            const total = (this.reinforcementQuestions || []).length;
+            if (total === 0) return 100;
             return Math.round((this.reinforcementIndex / total) * 100);
         }
         return Math.round((this.questionIndex / this.totalQuestions) * 100);
     }
 };
+
+// Fetch reinforcement questions for all levels in a stage
+async function fetchStageReinforcementQuestions(stageNum) {
+    try {
+        const rows = await fetchFromSupabase("questions", {
+            "select": "*",
+            "stage": `eq.${stageNum}`,
+            "question_type": "eq.reinforcement",
+            "order": "level,question_order",
+            "limit": "15",
+        });
+        const questions = rows.map(processQuestion).filter(Boolean);
+        return questions.length > 0 ? questions : null;
+    } catch (err) {
+        console.error("Failed to fetch stage reinforcement:", err);
+        return null;
+    }
+}
 
 
 // ─── SVG ICONS ─────────────────────────────────────────────────
@@ -327,17 +356,9 @@ function renderQuiz(container) {
     const total = LessonState.totalQuestions;
 
     if (qIdx >= total) {
-        // Check if reinforcement needed
-        const accuracy = LessonState.correct / total;
-        if (accuracy < 0.8 && LessonState.lessonData.reinforcement && LessonState.lessonData.reinforcement.length > 0) {
-            LessonState.step = "reinforcement";
-            LessonState.reinforcementIndex = 0;
-            LessonState.reinforcementCorrect = 0;
-            render();
-        } else {
-            LessonState.step = "victory";
-            render();
-        }
+        // Always go to victory — reinforcement only triggers after stage completion
+        LessonState.step = "victory";
+        render();
         return;
     }
 
@@ -440,15 +461,44 @@ function renderQuiz(container) {
 }
 
 
-// ─── REINFORCEMENT SCREEN ──────────────────────────────────────
+// ─── REINFORCEMENT SCREEN (stage-level, after completing stage) ─
 function renderReinforcement(container) {
-    const data = LessonState.lessonData;
-    const rqs = data.reinforcement;
+    const rqs = LessonState.reinforcementQuestions;
+    if (!rqs || rqs.length === 0) {
+        // No reinforcement questions — go back to map
+        window.location.href = "index.html";
+        return;
+    }
+
     const rIdx = LessonState.reinforcementIndex;
 
+    // All done — show summary
     if (rIdx >= rqs.length) {
-        LessonState.step = "victory";
-        render();
+        const rlCorrect = LessonState.reinforcementCorrect;
+        const rlTotal = rqs.length;
+        container.innerHTML = `
+            <div class="victory-container">
+                <div class="victory__trophy">
+                    ${LessonIcons.trophy}
+                </div>
+                <h1 class="victory__title">Stage Review Complete!</h1>
+                <p class="victory__subtitle">You reviewed weak topics from Stage ${LessonState.stageNumber}</p>
+
+                <div class="victory__stats" style="margin-top:24px;">
+                    <div class="victory__stat">
+                        <div class="victory__stat-value">${rlCorrect}/${rlTotal}</div>
+                        <div class="victory__stat-label">Review Score</div>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:center; margin-top:32px;">
+                    <button class="btn btn--primary btn--lg" id="rl-done" style="min-width:220px;">Continue to Map</button>
+                </div>
+            </div>
+        `;
+        document.getElementById("rl-done").addEventListener("click", () => {
+            window.location.href = "index.html";
+        });
         return;
     }
 
@@ -457,12 +507,12 @@ function renderReinforcement(container) {
     let html = `
         <div class="reinforcement-banner">
             <div class="reinforcement-banner__icon">${LessonIcons.shield}</div>
-            <span class="reinforcement-banner__text">Reinforcement Mode: Strengthening weak topics</span>
+            <span class="reinforcement-banner__text">Stage ${LessonState.stageNumber} Review: Strengthening weak topics</span>
         </div>
         <div class="quiz-card">
             <div class="quiz-card__step" style="background: rgba(255,150,0,0.12); color: #E65100;">
                 ${LessonIcons.shield}
-                <span>REINFORCE ${rIdx + 1} of ${rqs.length}</span>
+                <span>REVIEW ${rIdx + 1} of ${rqs.length}</span>
             </div>
             <h2 class="quiz-card__title">${q.question}</h2>
         </div>
@@ -603,20 +653,52 @@ function renderVictory(container) {
 
             <div style="display:flex; flex-direction:column; gap:12px; align-items:center; margin-top:12px;">
                 <button class="btn btn--primary btn--lg" id="victory-continue" style="min-width:220px;">
-                    Continue
+                    ${LessonState.isStageLastLevel ? "Continue to Stage Review" : "Continue"}
                 </button>
                 <button class="btn btn--secondary" id="victory-replay" style="padding:12px 32px; font-size:15px;">
                     Replay Level
                 </button>
             </div>
+
+            ${LessonState.isStageLastLevel ? `
+                <div class="hint-box" style="margin-top:16px; text-align:center;">
+                    ${LessonIcons.shield} <strong>Stage ${LessonState.stageNumber} Complete!</strong><br>
+                    A quick review of key concepts from this stage is coming up.
+                </div>
+            ` : ""}
         </div>
     `;
 
     // Trigger confetti
     launchConfetti();
 
-    document.getElementById("victory-continue").addEventListener("click", () => {
-        window.location.href = "index.html";
+    document.getElementById("victory-continue").addEventListener("click", async () => {
+        // If last level of stage → trigger stage reinforcement
+        if (LessonState.isStageLastLevel) {
+            const content = document.getElementById("lesson-content");
+            content.innerHTML = `
+                <div class="quiz-card" style="text-align:center; padding:60px 28px;">
+                    <div style="margin-bottom:20px;">${LessonIcons.loading}</div>
+                    <h2 class="quiz-card__title" style="font-size:20px;">Loading Stage Review...</h2>
+                    <p class="quiz-card__body" style="color:#888;">Fetching reinforcement questions for Stage ${LessonState.stageNumber}</p>
+                </div>
+            `;
+
+            const rlQuestions = await fetchStageReinforcementQuestions(LessonState.stageNumber);
+            if (rlQuestions && rlQuestions.length > 0) {
+                LessonState.reinforcementQuestions = rlQuestions;
+                LessonState.reinforcementIndex = 0;
+                LessonState.reinforcementCorrect = 0;
+                LessonState.answered = null;
+                LessonState.step = "reinforcement";
+                render();
+            } else {
+                // No reinforcement available — go back to map
+                window.location.href = "index.html";
+            }
+        } else {
+            window.location.href = "index.html";
+        }
     });
 
     document.getElementById("victory-replay").addEventListener("click", () => {
