@@ -515,7 +515,8 @@ body{
 
 
 /* ═══════════ LESSON PAGE OVERRIDES (kept for lesson.html) ═══════════ */
-.lesson-page{min-height:100vh;background:linear-gradient(180deg,#f8f9fa,#e9ecef)}
+html:has(.lesson-page){overflow:auto}
+.lesson-page{min-height:100vh;background:linear-gradient(180deg,#f8f9fa,#e9ecef);overflow:auto;height:auto}
 
 .progress-bar-container{
     position:fixed;top:var(--hud-h);left:0;right:0;z-index:99;
@@ -525,7 +526,7 @@ body{
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--node-green),#7CFC00);border-radius:10px;transition:width .5s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
 .progress-fill::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3) 50%,transparent);background-size:200% 100%;animation:shimmer 2s ease-in-out infinite}
 
-.lesson-content{max-width:520px;margin:0 auto;padding:calc(var(--hud-h) + 60px) 20px 40px}
+.lesson-content{max-width:520px;margin:0 auto;padding:calc(var(--hud-h) + 60px) 20px 100px}
 
 .quiz-card{background:#fff;border-radius:24px;padding:32px 28px;margin:16px 0;box-shadow:0 8px 32px rgba(0,0,0,.08);border:1px solid rgba(0,0,0,.04);animation:floatUp .4s ease-out}
 .quiz-card__step{display:inline-flex;align-items:center;gap:6px;background:rgba(88,204,2,.1);color:#2e7d32;padding:5px 14px;border-radius:20px;font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:14px}

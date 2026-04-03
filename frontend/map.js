@@ -10,15 +10,15 @@ gsap.registerPlugin(ScrollTrigger, MotionPathPlugin);
 
 /* ── GAME STATE ─────────────────────────────────────────────── */
 const G = {
-    currentLevel: 6,
-    xp: 250, streak: 3, gems: 5,
+    currentLevel: 0,
+    xp: 0, streak: 0, gems: 0,
     levels: [
-        { id:0,  title:"What is Money?",       stage:1, stars:3, color:"green" },
-        { id:1,  title:"Earning & Income",      stage:1, stars:3, color:"blue" },
-        { id:2,  title:"Budgeting 101",         stage:1, stars:2, color:"teal" },
-        { id:3,  title:"Saving Strategies",     stage:1, stars:3, color:"orange" },
-        { id:4,  title:"Banking Basics",        stage:1, stars:2, color:"dark", boss:true },
-        { id:5,  title:"Intro to Investing",    stage:2, stars:3, color:"green" },
+        { id:0,  title:"What is Money?",       stage:1, stars:0, color:"green" },
+        { id:1,  title:"Earning & Income",      stage:1, stars:0, color:"blue" },
+        { id:2,  title:"Budgeting 101",         stage:1, stars:0, color:"teal" },
+        { id:3,  title:"Saving Strategies",     stage:1, stars:0, color:"orange" },
+        { id:4,  title:"Banking Basics",        stage:1, stars:0, color:"dark", boss:true },
+        { id:5,  title:"Intro to Investing",    stage:2, stars:0, color:"green" },
         { id:6,  title:"Stocks & Bonds",        stage:2, stars:0, color:"blue" },
         { id:7,  title:"Compound Interest",     stage:2, stars:0, color:"teal" },
         { id:8,  title:"Risk & Return",         stage:2, stars:0, color:"orange" },
