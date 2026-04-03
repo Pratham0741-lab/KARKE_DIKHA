@@ -10,8 +10,10 @@ gsap.registerPlugin(ScrollTrigger, MotionPathPlugin);
 
 /* ── GAME STATE ─────────────────────────────────────────────── */
 const G = {
-    currentLevel: 0,
-    xp: 0, streak: 0, gems: 0,
+    currentLevel: parseInt(localStorage.getItem("finquest_currentLevel")) || 0,
+    xp: parseInt(localStorage.getItem("finquest_xp")) || 0, 
+    streak: parseInt(localStorage.getItem("finquest_streak")) || 0, 
+    gems: parseInt(localStorage.getItem("finquest_gems")) || 0,
     levels: [
         { id:0,  title:"What is Money?",       stage:1, stars:0, color:"green" },
         { id:1,  title:"Earning & Income",      stage:1, stars:0, color:"blue" },

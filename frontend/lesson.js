@@ -196,8 +196,8 @@ const LessonState = {
     correct: 0,
     total: 0,
     sessionXP: 0,
-    streak: 3,
-    xp: 250,
+    streak: parseInt(localStorage.getItem("finquest_streak")) || 0,
+    xp: parseInt(localStorage.getItem("finquest_xp")) || 0,
     reinforcementIndex: 0,
     reinforcementCorrect: 0,
     reinforcementQuestions: null,  // stage-level reinforcement (fetched on demand)
@@ -476,6 +476,11 @@ function renderReinforcement(container) {
     if (rIdx >= rqs.length) {
         const rlCorrect = LessonState.reinforcementCorrect;
         const rlTotal = rqs.length;
+        
+        // Save reinforcement XP/Streak to localStorage
+        localStorage.setItem("finquest_xp", LessonState.xp);
+        localStorage.setItem("finquest_streak", LessonState.streak);
+
         container.innerHTML = `
             <div class="victory-container">
                 <div class="victory__trophy">
@@ -599,10 +604,22 @@ function renderVictory(container) {
     const accuracy = Math.round((correct / totalQ) * 100);
     const data = LessonState.lessonData;
 
-    // Star rating
+    // Star rating (accuracy >= 80% is considered a pass, just like Streamlit's 4/5)
     let stars = 1;
     if (accuracy >= 80) stars = 3;
     else if (accuracy >= 60) stars = 2;
+
+    const passed = (accuracy >= 80);
+
+    // Persist progress to LocalStorage
+    if (passed) {
+        let savedLevel = parseInt(localStorage.getItem("finquest_currentLevel")) || 0;
+        if (LessonState.levelId >= savedLevel) {
+            localStorage.setItem("finquest_currentLevel", LessonState.levelId + 1);
+        }
+    }
+    localStorage.setItem("finquest_xp", LessonState.xp);
+    localStorage.setItem("finquest_streak", LessonState.streak);
 
     let starsHTML = "";
     for (let i = 0; i < 3; i++) {
