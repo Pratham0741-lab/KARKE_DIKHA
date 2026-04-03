@@ -855,4 +855,31 @@ document.addEventListener("DOMContentLoaded", () => {
     ScrollTrigger.defaults({ scroller: "#map-scroll" });
     requestAnimationFrame(() => setTimeout(fullBuild, 100));
     loop(0);
+
+    // Reset Progress Button Interaction
+    const resetBtn = document.getElementById("reset-progress-btn");
+    if (resetBtn) {
+        resetBtn.addEventListener("mousedown", () => {
+            resetBtn.style.transform = "translateY(3px)";
+            resetBtn.style.boxShadow = "0 0 0 #CC3D3D";
+        });
+        resetBtn.addEventListener("mouseup", () => {
+            resetBtn.style.transform = "translateY(0)";
+            resetBtn.style.boxShadow = "0 3px 0 #CC3D3D";
+        });
+        resetBtn.addEventListener("mouseleave", () => {
+            resetBtn.style.transform = "translateY(0)";
+            resetBtn.style.boxShadow = "0 3px 0 #CC3D3D";
+        });
+        resetBtn.addEventListener("click", () => {
+            if (confirm("Are you sure you want to reset all your learning progress? This cannot be undone!")) {
+                localStorage.removeItem("finquest_currentLevel");
+                localStorage.removeItem("finquest_xp");
+                localStorage.removeItem("finquest_streak");
+                localStorage.removeItem("finquest_gems");
+                localStorage.removeItem("finquest_weak_levels");
+                location.reload();
+            }
+        });
+    }
 });
