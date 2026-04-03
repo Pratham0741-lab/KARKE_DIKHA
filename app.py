@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+from ml_engine import AdaptiveEngine
 
 # ============================================================
 # PAGE CONFIG
@@ -51,10 +52,10 @@ def svg_lightbulb(size=24, color="#FFC107"):
 # ============================================================
 # GAME CONSTANTS
 # ============================================================
-NUM_STAGES = 2
+NUM_STAGES = 3
 LEVELS_PER_STAGE = 5
 TOTAL_LEVELS = NUM_STAGES * LEVELS_PER_STAGE
-STAGE_ICONS = [svg_book(20, "#FFFFFF"), svg_chart(20, "#FFFFFF")]
+STAGE_ICONS = [svg_book(20, "#FFFFFF"), svg_chart(20, "#FFFFFF"), svg_trophy(20, "#FFFFFF")]
 
 # ============================================================
 # ZIGZAG NODE POSITIONS (column index in 5-col grid)
@@ -94,6 +95,9 @@ def init_state():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    # Initialize adaptive engine
+    if "engine" not in st.session_state:
+        st.session_state.engine = AdaptiveEngine()
 
 init_state()
 
@@ -156,29 +160,21 @@ def validate_database():
         for s in range(1, NUM_STAGES + 1):
             for lv in range(1, LEVELS_PER_STAGE + 1):
                 c = counts.get((s, lv), 0)
-                if c != 8:
-                    return False, f"Database integrity error: each level must have 8 questions (Stage {s} Level {lv} has {c})"
+                if c < 8:
+                    return False, f"Database integrity error: each level must have at least 8 questions (Stage {s} Level {lv} has {c})"
         return True, "OK"
     except Exception as e:
         return False, f"Unable to connect to database: {str(e)}"
 
-@st.cache_data(ttl=300)
+STAGE_TOPICS = {
+    1: "Money Basics",
+    2: "Investing & Wealth",
+    3: "Debt, Taxes & Planning",
+}
+
 def get_stage_topic(_stage: int) -> str:
-    """Fetch stage topic name from the first question of that stage."""
-    client = init_supabase()
-    if not client:
-        return f"Stage {_stage}"
-    try:
-        resp = (client.table("questions")
-                .select("topic")
-                .eq("stage", _stage)
-                .limit(1)
-                .execute())
-        if resp.data and len(resp.data) > 0:
-            return resp.data[0].get("topic", f"Stage {_stage}")
-        return f"Stage {_stage}"
-    except Exception:
-        return f"Stage {_stage}"
+    """Return the display name for a stage."""
+    return STAGE_TOPICS.get(_stage, f"Stage {_stage}")
 
 @st.cache_data(ttl=300)
 def fetch_core_questions(stage: int, level: int) -> list:
@@ -193,10 +189,11 @@ def fetch_core_questions(stage: int, level: int) -> list:
                 .eq("level", level)
                 .eq("question_type", "core")
                 .order("question_order")
+                .limit(5)
                 .execute())
-        if not resp.data or len(resp.data) != 5:
+        if not resp.data or len(resp.data) < 5:
             return None
-        processed = [process_question(row) for row in resp.data]
+        processed = [process_question(row) for row in resp.data[:5]]
         if None in processed:
             return None
         return processed
@@ -216,10 +213,11 @@ def fetch_reinforcement_questions(stage: int, level: int) -> list:
                 .eq("level", level)
                 .eq("question_type", "reinforcement")
                 .order("question_order")
+                .limit(3)
                 .execute())
-        if not resp.data or len(resp.data) != 3:
+        if not resp.data or len(resp.data) < 3:
             return None
-        processed = [process_question(row) for row in resp.data]
+        processed = [process_question(row) for row in resp.data[:3]]
         if None in processed:
             return None
         return processed
@@ -832,13 +830,13 @@ def render_reward():
         </div>
         ''', unsafe_allow_html=True)
 
-    # --- Adaptive completion logic ---
+    # --- Adaptive completion logic via engine ---
+    engine = st.session_state.engine
     level_score = st.session_state.practice_first_correct + st.session_state.test_correct
-    passed = level_score >= 4
-
-    # Debug logging
-    print(f"[REWARD] Stage={stage_num} Level={level_num} | practice_first_correct={st.session_state.practice_first_correct} test_correct={st.session_state.test_correct} level_score={level_score} passed={passed}")
-    print(f"[REWARD] Weak Levels: {st.session_state.weak_levels}")
+    result = engine.evaluate_level(stage_num, level_num, level_score, st.session_state.reattempt_count)
+    passed = result["is_pass"]
+    # Sync engine weak_topics → session weak_levels
+    st.session_state.weak_levels = engine.weak_topics
 
     if passed:
         st.markdown(f'''
@@ -879,14 +877,9 @@ def render_reward():
                 st.session_state.practice_state = "answering"
                 st.session_state.practice_first_correct = 0
                 st.session_state.practice_wrong_attempt = False
-                # Check if stage completed and weak levels exist
-                if is_stage_last and st.session_state.weak_levels:
-                    print(f"[REINFORCEMENT] Triggering for stage {completed_stage}, weak_levels: {st.session_state.weak_levels}")
-                    rl_questions = []
-                    for ws, wl in st.session_state.weak_levels:
-                        qs = fetch_reinforcement_questions(ws, wl)
-                        if qs:
-                            rl_questions.extend(qs)
+                # Check if stage completed — use engine for reinforcement
+                if is_stage_last and engine.should_reinforce():
+                    rl_questions = engine.get_reinforcement_questions(fetch_reinforcement_questions)
                     if rl_questions:
                         st.session_state.reinforcement_questions = rl_questions
                         st.session_state.rl_index = 0
@@ -896,17 +889,13 @@ def render_reward():
                         st.session_state.step = "reinforcement"
                         st.rerun()
                     else:
-                        st.session_state.weak_levels = set()
+                        engine.clear_after_reinforcement()
+                        st.session_state.weak_levels = engine.weak_topics
                 st.session_state.step = "map"
                 st.rerun()
         else:
             if st.button("Retry Level", key="reward_retry", type="primary", use_container_width=True):
                 st.session_state.reattempt_count += 1
-                # Always mark as weak on fail
-                s_num = get_stage_for_level(st.session_state.current_level)
-                l_num = get_local_level(st.session_state.current_level)
-                st.session_state.weak_levels.add((s_num, l_num))
-                print(f"[FAIL] Added ({s_num},{l_num}) to weak_levels: {st.session_state.weak_levels}")
                 # Retry same level with same core questions
                 st.session_state.step = "teach"
                 st.session_state.session_xp = 0
@@ -926,8 +915,9 @@ def render_reinforcement():
     """Reinforcement phase for weak levels after stage completion."""
     rl_qs = st.session_state.get("reinforcement_questions")
     if not rl_qs or len(rl_qs) == 0:
+        st.session_state.engine.clear_after_reinforcement()
+        st.session_state.weak_levels = st.session_state.engine.weak_topics
         st.session_state.step = "map"
-        st.session_state.weak_levels = set()
         st.session_state.reinforcement_questions = None
         st.rerun()
         return
@@ -961,7 +951,8 @@ def render_reinforcement():
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             if st.button("Continue", key="rl_done", type="primary", use_container_width=True):
-                st.session_state.weak_levels = set()
+                st.session_state.engine.clear_after_reinforcement()
+                st.session_state.weak_levels = st.session_state.engine.weak_topics
                 st.session_state.reattempt_count = 0
                 st.session_state.reinforcement_questions = None
                 st.session_state.rl_index = 0
@@ -993,7 +984,10 @@ def render_reinforcement():
             if st.button(opt, key=f"rl_q{q_idx}_opt_{i}", type="secondary", use_container_width=True):
                 st.session_state.rl_selection = i
                 st.session_state.rl_answered += 1
-                if i == q["correct"]:
+                is_correct = (i == q["correct"])
+                # Track in engine
+                st.session_state.engine.record_rl_answer(is_correct)
+                if is_correct:
                     st.session_state.rl_correct += 1
                     st.session_state.streak += 1
                     st.session_state.max_streak = max(st.session_state.max_streak, st.session_state.streak)
