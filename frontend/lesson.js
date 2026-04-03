@@ -228,6 +228,23 @@ const LessonState = {
         return Math.floor(this.levelId / 5) + 1;
     },
 
+    // Weak levels stored in localStorage (array of absolute level IDs 0-14)
+    get weakLevels() {
+        try {
+            return JSON.parse(localStorage.getItem("finquest_weak_levels")) || [];
+        } catch(e) { return []; }
+    },
+
+    set weakLevels(arr) {
+        localStorage.setItem("finquest_weak_levels", JSON.stringify(arr));
+    },
+
+    // Weak levels that belong to the current stage
+    get weakLevelsForStage() {
+        const stage = this.stageNumber;
+        return this.weakLevels.filter(id => (Math.floor(id / 5) + 1) === stage);
+    },
+
     get progressPercent() {
         if (this.step === "teach" || this.step === "loading") return 0;
         if (this.step === "victory") return 100;
@@ -240,20 +257,27 @@ const LessonState = {
     }
 };
 
-// Fetch reinforcement questions for all levels in a stage
-async function fetchStageReinforcementQuestions(stageNum) {
+// Fetch reinforcement questions for specific weak levels in a stage
+async function fetchReinforcementQuestions(stageNum, weakLevelIds) {
+    if (!weakLevelIds || weakLevelIds.length === 0) return null;
+
+    // Convert absolute level IDs (0-14) to local level numbers (1-5)
+    const localLevels = weakLevelIds.map(id => (id % 5) + 1);
+    const levelsStr = `(${localLevels.join(",")})`;
+
     try {
         const rows = await fetchFromSupabase("questions", {
             "select": "*",
             "stage": `eq.${stageNum}`,
             "question_type": "eq.reinforcement",
+            "level": `in.${levelsStr}`,
             "order": "level,question_order",
-            "limit": "15",
+            "limit": "20",
         });
         const questions = rows.map(processQuestion).filter(Boolean);
         return questions.length > 0 ? questions : null;
     } catch (err) {
-        console.error("Failed to fetch stage reinforcement:", err);
+        console.error("Failed to fetch reinforcement:", err);
         return null;
     }
 }
@@ -476,10 +500,14 @@ function renderReinforcement(container) {
     if (rIdx >= rqs.length) {
         const rlCorrect = LessonState.reinforcementCorrect;
         const rlTotal = rqs.length;
-        
         // Save reinforcement XP/Streak to localStorage
         localStorage.setItem("finquest_xp", LessonState.xp);
         localStorage.setItem("finquest_streak", LessonState.streak);
+
+        // Clear weak topics for this stage since they have been reviewed
+        const stageNum = LessonState.stageNumber;
+        const remainingWeak = LessonState.weakLevels.filter(id => (Math.floor(id / 5) + 1) !== stageNum);
+        LessonState.weakLevels = remainingWeak;
 
         container.innerHTML = `
             <div class="victory-container">
@@ -611,6 +639,15 @@ function renderVictory(container) {
 
     const passed = (accuracy >= 80);
 
+    // Track weak levels exactly like ml_engine
+    if (!passed) {
+        const currentWeak = LessonState.weakLevels;
+        if (!currentWeak.includes(LessonState.levelId)) {
+            currentWeak.push(LessonState.levelId);
+            LessonState.weakLevels = currentWeak;
+        }
+    }
+
     // Persist progress to LocalStorage
     if (passed) {
         let savedLevel = parseInt(localStorage.getItem("finquest_currentLevel")) || 0;
@@ -670,17 +707,17 @@ function renderVictory(container) {
 
             <div style="display:flex; flex-direction:column; gap:12px; align-items:center; margin-top:12px;">
                 <button class="btn btn--primary btn--lg" id="victory-continue" style="min-width:220px;">
-                    ${LessonState.isStageLastLevel ? "Continue to Stage Review" : "Continue"}
+                    ${(LessonState.isStageLastLevel && LessonState.weakLevelsForStage.length > 0) ? "Continue to Stage Review" : "Continue"}
                 </button>
                 <button class="btn btn--secondary" id="victory-replay" style="padding:12px 32px; font-size:15px;">
                     Replay Level
                 </button>
             </div>
 
-            ${LessonState.isStageLastLevel ? `
+            ${(LessonState.isStageLastLevel && LessonState.weakLevelsForStage.length > 0) ? `
                 <div class="hint-box" style="margin-top:16px; text-align:center;">
                     ${LessonIcons.shield} <strong>Stage ${LessonState.stageNumber} Complete!</strong><br>
-                    A quick review of key concepts from this stage is coming up.
+                    You have weak topics to review before advancing.
                 </div>
             ` : ""}
         </div>
@@ -690,18 +727,19 @@ function renderVictory(container) {
     launchConfetti();
 
     document.getElementById("victory-continue").addEventListener("click", async () => {
-        // If last level of stage → trigger stage reinforcement
-        if (LessonState.isStageLastLevel) {
+        // If last level of stage and there are weak levels to reinforce
+        const weakForStage = LessonState.weakLevelsForStage;
+        if (LessonState.isStageLastLevel && weakForStage.length > 0) {
             const content = document.getElementById("lesson-content");
             content.innerHTML = `
                 <div class="quiz-card" style="text-align:center; padding:60px 28px;">
                     <div style="margin-bottom:20px;">${LessonIcons.loading}</div>
                     <h2 class="quiz-card__title" style="font-size:20px;">Loading Stage Review...</h2>
-                    <p class="quiz-card__body" style="color:#888;">Fetching reinforcement questions for Stage ${LessonState.stageNumber}</p>
+                    <p class="quiz-card__body" style="color:#888;">Compiling weak topics (Level ${weakForStage.map(id=>(id%5)+1).join(", ")})</p>
                 </div>
             `;
 
-            const rlQuestions = await fetchStageReinforcementQuestions(LessonState.stageNumber);
+            const rlQuestions = await fetchReinforcementQuestions(LessonState.stageNumber, weakForStage);
             if (rlQuestions && rlQuestions.length > 0) {
                 LessonState.reinforcementQuestions = rlQuestions;
                 LessonState.reinforcementIndex = 0;
