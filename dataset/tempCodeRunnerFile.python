@@ -1,0 +1,24 @@
+import pandas as pd
+import re
+import csv
+
+INPUT_FILE = "final_lessons.csv"
+OUTPUT_FILE = "final_lessons_fixed.csv"
+
+df = pd.read_csv(INPUT_FILE, encoding="utf-8")
+
+def smart_replace(text):
+    # Replace ONLY first comma between words (not numbers)
+    return re.sub(r'([A-Za-z])\,([A-Za-z])', r'\1: \2', text, count=1)
+
+df["content"] = df["content"].apply(smart_replace)
+
+df.to_csv(
+    OUTPUT_FILE,
+    index=False,
+    encoding="utf-8",
+    quoting=csv.QUOTE_ALL
+)
+
+print("✅ Perfect fix applied")
+print("Rows:", len(df))
